@@ -29,7 +29,7 @@ import numpy as np
 
 BOTTLE_CLASS_ID = 39           # COCO class index for "bottle"
 CONFIDENCE_THRESHOLD = 0.45    # Min confidence to count as detected
-HOLD_DURATION = 15             # Seconds of continuous bottle detection needed
+HOLD_DURATION = 3             # Seconds of continuous bottle detection needed
 DEFAULT_INTERVAL = 30          # Minutes between reminders
 TEST_INTERVAL = 0.167          # ~10 seconds for test mode
 YOLO_MODEL = "yolov8n.pt"     # Nano model — fast, auto-downloads on first run
