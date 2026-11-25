@@ -66,7 +66,7 @@ flowchart TD
     E -->|yes| F[Hold timer runs]
     E -->|no, longer than 0.5s| G[Timer resets]
     E -->|no, under 0.5s| F
-    F -->|held for the full duration| H[Alarm stops ✅<br/>"HYDRATED!" screen]
+    F -->|held for the full duration| H[Alarm stops ✅<br/>"good job, pookie!" screen]
     G --> E
     H --> B
     B -. press Q or ESC .-> Z([Quit])
@@ -78,7 +78,7 @@ flowchart TD
 3. The webcam opens and every frame goes through YOLOv8-nano.
 4. A detection only counts if it is the COCO class **bottle** (id `39`) and its confidence meets your threshold.
 5. Keep the bottle in view for the whole **hold duration**. A dropout longer than the grace period resets the timer.
-6. The alarm stops, a green "HYDRATED!" frame appears briefly, and the next countdown begins.
+6. The alarm stops, a pink "good job, pookie!" frame appears briefly, and the next countdown begins.
 
 ---
 
@@ -131,9 +131,16 @@ python main.py --no-display              # no windows, just the alarm and the ca
 
 ### What you'll see
 
-- **Waiting window** — "Next alarm in MM:SS" and the time of the next reminder.
-- **Alarm window** — a red banner while no bottle is detected, a green banner and bounding box when one is, and a progress bar showing how much longer to hold.
-- **Success screen** — a green "HYDRATED!" overlay for a couple of seconds.
+All on-screen text is soft, lowercase and a little bit pookie, in a pastel palette:
+
+| Window | What it says |
+|---|---|
+| **Waiting** | "hydration buddy ♥" and "next sip in MM:SS <3" |
+| **Alarm, no bottle yet** | "sip sip, pookie! show me your bottle <3" in pink, with a gently pulsing border |
+| **Alarm, bottle seen** | "yay, there it is! keep holding~ <3" in mint, plus a progress bar and "almost there~ just 1.2s more <3" |
+| **Success** | "good job, pookie!" over a pink tint, then "so proud of you <3 next sip in 30 min~" |
+
+To change any of it, edit the strings in `draw_detection_overlay`, `draw_waiting_screen` and the success block in `run_alarm_session`. OpenCV's built-in fonts can't draw emoji or symbols like ♥ (they show up as `?`), so use text like `<3` or the `draw_heart()` helper instead.
 
 ---
 
@@ -165,7 +172,7 @@ python main.py --hold 15
 <details>
 <summary><b>Detect something else (a cup, for example)</b></summary>
 
-Change `BOTTLE_CLASS_ID` in `main.py` to another [COCO class id](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml). `39` is `bottle`, `41` is `cup`. The on-screen labels still say "Bottle", so update the strings in `draw_detection_overlay` if you want them to match.
+Change `BOTTLE_CLASS_ID` in `main.py` to another [COCO class id](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml). `39` is `bottle`, `41` is `cup`. The on-screen text still talks about a bottle, so update the strings in `draw_detection_overlay` if you want them to match.
 </details>
 
 <details>
