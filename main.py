@@ -3,12 +3,13 @@ Water Bottle Detector 💧
 ========================
 Reminds you to drink water every 30 minutes by sounding an alarm.
 The alarm stops ONLY when you hold a water bottle in front of the camera
-for 15 continuous seconds.
+for HOLD_DURATION continuous seconds (default 3, change with --hold).
 
 Usage:
     python main.py              # Normal mode (30-minute intervals)
     python main.py --test       # Test mode (10-second intervals for quick testing)
     python main.py --interval 5 # Custom interval in minutes
+    python main.py --hold 15    # Require a 15-second hold
 
 Controls (while camera is active):
     q   — Quit the entire program
@@ -29,7 +30,9 @@ import numpy as np
 
 BOTTLE_CLASS_ID = 39           # COCO class index for "bottle"
 CONFIDENCE_THRESHOLD = 0.45    # Min confidence to count as detected
-HOLD_DURATION = 3             # Seconds of continuous bottle detection needed
+HOLD_DURATION = 3              # Seconds of continuous bottle detection needed
+GRACE_PERIOD = 0.5             # Seconds a bottle may vanish (flicker) before the hold timer resets
+CAMERA_RETRY_SECONDS = 2       # Delay between attempts to open a missing camera
 DEFAULT_INTERVAL = 30          # Minutes between reminders
 TEST_INTERVAL = 0.167          # ~10 seconds for test mode
 YOLO_MODEL = "yolov8n.pt"     # Nano model — fast, auto-downloads on first run
@@ -109,7 +112,6 @@ class AlarmManager:
     def _loop_alarm(self):
         """Internal: loop the alarm in a background thread."""
         import subprocess as _sp
-        import threading
 
         while self._playing:
             try:
@@ -308,16 +310,22 @@ def run_alarm_session(model, alarm, args):
 
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("❌ Could not open camera! Stopping alarm after 30 seconds.")
-        time.sleep(30)
-        alarm.stop()
-        return True
+        # Keep the alarm ringing and keep retrying; silencing it here would
+        # let a broken/blocked camera bypass the check. Ctrl+C still quits.
+        print("❌ Could not open camera (check System Settings → Privacy → Camera).")
+        print("   Alarm keeps ringing; retrying... press Ctrl+C to quit.")
+        while not cap.isOpened():
+            time.sleep(CAMERA_RETRY_SECONDS)
+            cap.release()
+            cap = cv2.VideoCapture(0)
 
     # Try to set reasonable resolution
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 800)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 600)
 
     bottle_start_time = None
+    last_seen_time = None
+    hold_elapsed = 0
     user_quit = False
 
     try:
@@ -334,12 +342,14 @@ def run_alarm_session(model, alarm, args):
             bottle_detected, detection_boxes = detect_bottles(results, args.confidence)
 
             # Track continuous detection time
+            now = time.time()
             if bottle_detected:
+                last_seen_time = now
                 if bottle_start_time is None:
-                    bottle_start_time = time.time()
+                    bottle_start_time = now
                     print("   🟢 Bottle detected! Keep holding...")
 
-                hold_elapsed = time.time() - bottle_start_time
+                hold_elapsed = now - bottle_start_time
 
                 if hold_elapsed >= args.hold:
                     alarm.stop()
@@ -354,34 +364,37 @@ def run_alarm_session(model, alarm, args):
                         cv2.addWeighted(overlay, 0.3, success_frame, 0.7, 0, success_frame)
                         cv2.putText(success_frame, "HYDRATED!", (w // 2 - 120, h // 2),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.5, COLOR_WHITE, 3)
-                        cv2.putText(success_frame, "See you in 30 minutes...",
+                        cv2.putText(success_frame, f"See you in {args.interval_minutes:g} minutes...",
                                     (w // 2 - 150, h // 2 + 45),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 1)
                         cv2.imshow("Water Bottle Detector", success_frame)
                         cv2.waitKey(2500)
 
                     break
-            else:
-                if bottle_start_time is not None:
+            elif bottle_start_time is not None:
+                # Tolerate brief detection dropouts before resetting the timer
+                if now - last_seen_time > GRACE_PERIOD:
                     print("   🔴 Bottle lost! Timer reset.")
-                bottle_start_time = None
-                hold_elapsed = 0
+                    bottle_start_time = None
+                    hold_elapsed = 0
+                else:
+                    hold_elapsed = now - bottle_start_time
 
             # Draw UI overlay
             if not args.no_display:
                 draw_detection_overlay(
                     frame, bottle_detected,
-                    hold_elapsed if bottle_detected else 0,
+                    hold_elapsed,
                     args.hold, detection_boxes
                 )
                 cv2.imshow("Water Bottle Detector", frame)
 
-            # Check for quit keys
-            key = cv2.waitKey(1) & 0xFF
-            if key in (ord('q'), ord('Q'), 27):  # q, Q, or ESC
-                user_quit = True
-                alarm.stop()
-                break
+                # Check for quit keys (needs a window; headless uses Ctrl+C)
+                key = cv2.waitKey(1) & 0xFF
+                if key in (ord('q'), ord('Q'), 27):  # q, Q, or ESC
+                    user_quit = True
+                    alarm.stop()
+                    break
 
     finally:
         cap.release()
@@ -408,6 +421,7 @@ def main():
         interval_minutes = DEFAULT_INTERVAL
 
     interval_seconds = interval_minutes * 60
+    args.interval_minutes = interval_minutes  # used by the success screen
 
     print("=" * 55)
     print("  💧 Water Bottle Detector")
@@ -456,7 +470,6 @@ def main():
             # Show waiting screen
             if not args.no_display:
                 wait_frame = draw_waiting_screen()
-                remaining = interval_seconds
                 cv2.putText(wait_frame,
                             f"Next: {time.strftime('%H:%M:%S', time.localtime(time.time() + interval_seconds))}",
                             (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1)
