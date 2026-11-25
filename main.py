@@ -37,16 +37,18 @@ DEFAULT_INTERVAL = 30          # Minutes between reminders
 TEST_INTERVAL = 0.167          # ~10 seconds for test mode
 YOLO_MODEL = "yolov8n.pt"     # Nano model — fast, auto-downloads on first run
 
-# UI Colors (BGR)
-COLOR_BG = (30, 30, 30)
-COLOR_RED = (60, 60, 235)
-COLOR_GREEN = (100, 200, 80)
-COLOR_YELLOW = (50, 200, 230)
-COLOR_WHITE = (240, 240, 240)
-COLOR_GRAY = (130, 130, 130)
-COLOR_DARK = (20, 20, 20)
-COLOR_ACCENT = (230, 160, 50)   # Blue accent
-COLOR_BAR_BG = (50, 50, 50)
+# UI Colors (BGR) — soft pastel palette
+COLOR_BG = (40, 30, 38)            # deep plum background
+COLOR_DARK = (45, 30, 40)          # banner background
+COLOR_PINK = (193, 150, 255)       # #FF96C1 soft pink
+COLOR_MINT = (180, 230, 150)       # #96E6B4 mint
+COLOR_PEACH = (170, 200, 255)      # #FFC8AA peach
+COLOR_LAVENDER = (250, 190, 205)   # #CDBEFA lavender
+COLOR_CREAM = (235, 245, 255)      # #FFF5EB warm white
+COLOR_GRAY = (170, 150, 165)       # muted mauve for hints
+COLOR_BAR_BG = (70, 55, 65)
+
+FONT = cv2.FONT_HERSHEY_SIMPLEX    # Built-in fonts can't draw emoji or ♥ (they show "?"): use "<3" or draw_heart()
 
 
 def parse_args():
@@ -194,6 +196,36 @@ def draw_progress_bar(frame, x, y, width, height, progress, color):
         cv2.rectangle(frame, (x + 1, y + 1), (x + fill_width - 1, y + height // 3), shine_color, -1)
 
 
+def put_text(frame, text, org, scale, color, thickness=1, max_width=None, align="left"):
+    """
+    Draw anti-aliased text. Shrinks the text to fit max_width, and aligns it
+    so org's x is the left edge, centre ("center") or right edge ("right").
+    Returns the drawn text width in pixels.
+    """
+    (tw, _), _ = cv2.getTextSize(text, FONT, scale, thickness)
+    if max_width and tw > max_width:
+        scale *= max_width / tw
+        (tw, _), _ = cv2.getTextSize(text, FONT, scale, thickness)
+    x, y = org
+    if align == "center":
+        x -= tw // 2
+    elif align == "right":
+        x -= tw
+    cv2.putText(frame, text, (int(x), int(y)), FONT, scale, color, thickness, cv2.LINE_AA)
+    return tw
+
+
+def draw_heart(img, center, size, color):
+    """Draw a small filled heart (OpenCV fonts can't render emoji)."""
+    cx, cy = center
+    r = max(size // 4, 1)
+    cv2.circle(img, (cx - r, cy - r // 2), r, color, -1, cv2.LINE_AA)
+    cv2.circle(img, (cx + r, cy - r // 2), r, color, -1, cv2.LINE_AA)
+    pts = np.array([[cx - 2 * r, cy - r // 2], [cx + 2 * r, cy - r // 2],
+                    [cx, cy + int(1.6 * r)]], np.int32)
+    cv2.fillPoly(img, [pts], color, cv2.LINE_AA)
+
+
 def draw_detection_overlay(frame, bottle_detected, hold_elapsed, hold_duration, detection_boxes):
     """Draw the full UI overlay on the camera frame."""
     h, w = frame.shape[:2]
@@ -201,35 +233,31 @@ def draw_detection_overlay(frame, bottle_detected, hold_elapsed, hold_duration, 
     # ── Draw detection bounding boxes ──
     for box_data in detection_boxes:
         x1, y1, x2, y2, conf = box_data
-        box_color = COLOR_GREEN if bottle_detected else COLOR_YELLOW
-        cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2)
+        box_color = COLOR_MINT if bottle_detected else COLOR_PEACH
+        cv2.rectangle(frame, (x1, y1), (x2, y2), box_color, 2, cv2.LINE_AA)
 
-        label = f"Bottle {conf:.0%}"
-        label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        label = f"bottle <3 {conf:.0%}"
+        label_size = cv2.getTextSize(label, FONT, 0.6, 2)[0]
         cv2.rectangle(frame, (x1, y1 - 25), (x1 + label_size[0] + 8, y1), box_color, -1)
-        cv2.putText(frame, label, (x1 + 4, y1 - 7),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_DARK, 2)
+        put_text(frame, label, (x1 + 4, y1 - 7), 0.6, COLOR_DARK, 2)
 
     # ── Top status bar ──
     draw_rounded_rect(frame, (10, 10), (w - 10, 75), COLOR_DARK, radius=10)
 
     if bottle_detected:
-        status_text = "BOTTLE DETECTED"
-        status_color = COLOR_GREEN
-        icon = "+"
+        status_text = "yay, there it is! keep holding~ <3"
+        status_color = COLOR_MINT
     else:
-        status_text = "NO BOTTLE — SHOW YOUR WATER BOTTLE!"
-        status_color = COLOR_RED
-        icon = "!"
+        status_text = "sip sip, pookie! show me your bottle <3"
+        status_color = COLOR_PINK
 
-    # Pulsing effect for alarm state
-    pulse = abs(np.sin(time.time() * 4))
+    # Gentle pulsing border while waiting for the bottle
+    pulse = abs(np.sin(time.time() * 2))
     if not bottle_detected:
-        border_color = tuple(int(c * (0.5 + 0.5 * pulse)) for c in COLOR_RED)
-        cv2.rectangle(frame, (10, 10), (w - 10, 75), border_color, 2)
+        border_color = tuple(int(c * (0.5 + 0.5 * pulse)) for c in COLOR_PINK)
+        cv2.rectangle(frame, (10, 10), (w - 10, 75), border_color, 2, cv2.LINE_AA)
 
-    cv2.putText(frame, f"[{icon}] {status_text}", (25, 52),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.7, status_color, 2)
+    put_text(frame, status_text, (25, 52), 0.7, status_color, 2, max_width=w - 50)
 
     # ── Progress bar (bottom) ──
     bar_y = h - 80
@@ -237,35 +265,37 @@ def draw_detection_overlay(frame, bottle_detected, hold_elapsed, hold_duration, 
 
     draw_rounded_rect(frame, (10, bar_y - 10), (w - 10, h - 10), COLOR_DARK, radius=10)
 
-    bar_color = COLOR_GREEN if progress > 0 else COLOR_GRAY
+    bar_color = COLOR_MINT if progress > 0 else COLOR_GRAY
     draw_progress_bar(frame, 20, bar_y + 8, w - 40, 20, progress, bar_color)
 
     # Timer text
     remaining = max(0, hold_duration - hold_elapsed)
     if hold_elapsed > 0:
-        timer_text = f"Hold steady: {remaining:.1f}s remaining"
-        timer_color = COLOR_GREEN
+        timer_text = f"almost there~ just {remaining:.1f}s more <3"
+        timer_color = COLOR_MINT
     else:
-        timer_text = f"Hold bottle for {hold_duration:.0f}s to silence alarm"
-        timer_color = COLOR_GRAY
+        timer_text = f"hold your bottle for {hold_duration:g}s and i'll hush <3"
+        timer_color = COLOR_LAVENDER
 
-    cv2.putText(frame, timer_text, (20, bar_y + 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.55, timer_color, 1)
+    put_text(frame, timer_text, (20, bar_y + 50), 0.55, timer_color, 1, max_width=w - 40)
 
     # ── Controls hint ──
-    cv2.putText(frame, "Press Q or ESC to quit", (w - 220, 95),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLOR_GRAY, 1)
+    put_text(frame, "press Q to quit (i'll miss you)", (w - 20, 95), 0.4, COLOR_GRAY, 1,
+             align="right")
 
 
-def draw_waiting_screen():
-    """Create a standalone waiting screen image."""
+def draw_waiting_screen(countdown_text):
+    """Create the standalone waiting screen shown between reminders."""
     frame = np.zeros((200, 550, 3), dtype=np.uint8)
     frame[:] = COLOR_BG
+    w = frame.shape[1]
 
-    cv2.putText(frame, "Water Bottle Detector", (30, 50),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.9, COLOR_ACCENT, 2)
-    cv2.putText(frame, "Waiting for next reminder...", (30, 90),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_GRAY, 1)
+    title_w = put_text(frame, "hydration buddy", (30, 50), 0.9, COLOR_PINK, 2)
+    draw_heart(frame, (30 + title_w + 22, 40), 22, COLOR_PINK)
+    put_text(frame, "relax, i'll remind you when it's sip time~", (30, 90), 0.6,
+             COLOR_LAVENDER, 1, max_width=w - 60)
+    put_text(frame, countdown_text, (30, 140), 0.6, COLOR_CREAM, 1)
+    put_text(frame, "press Q to quit (i'll miss you)", (30, 175), 0.45, COLOR_GRAY, 1)
 
     return frame
 
@@ -360,13 +390,15 @@ def run_alarm_session(model, alarm, args):
                         success_frame = frame.copy()
                         h, w = success_frame.shape[:2]
                         overlay = success_frame.copy()
-                        cv2.rectangle(overlay, (0, 0), (w, h), COLOR_GREEN, -1)
-                        cv2.addWeighted(overlay, 0.3, success_frame, 0.7, 0, success_frame)
-                        cv2.putText(success_frame, "HYDRATED!", (w // 2 - 120, h // 2),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 1.5, COLOR_WHITE, 3)
-                        cv2.putText(success_frame, f"See you in {args.interval_minutes:g} minutes...",
-                                    (w // 2 - 150, h // 2 + 45),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, COLOR_WHITE, 1)
+                        cv2.rectangle(overlay, (0, 0), (w, h), COLOR_PINK, -1)
+                        cv2.addWeighted(overlay, 0.35, success_frame, 0.65, 0, success_frame)
+                        draw_heart(success_frame, (w // 2, h // 2 - 75), 48, COLOR_CREAM)
+                        put_text(success_frame, "good job, pookie!", (w // 2, h // 2),
+                                 1.3, COLOR_CREAM, 2, max_width=w - 40, align="center")
+                        put_text(success_frame,
+                                 f"so proud of you <3 next sip in {args.interval_minutes:g} min~",
+                                 (w // 2, h // 2 + 45), 0.7, COLOR_CREAM, 1,
+                                 max_width=w - 40, align="center")
                         cv2.imshow("Water Bottle Detector", success_frame)
                         cv2.waitKey(2500)
 
@@ -467,17 +499,7 @@ def main():
             print(f"\n⏰ Reminder #{reminder_count} in {interval_minutes:.1f} min...")
             print(f"   Next alarm at: {time.strftime('%H:%M:%S', time.localtime(time.time() + interval_seconds))}")
 
-            # Show waiting screen
-            if not args.no_display:
-                wait_frame = draw_waiting_screen()
-                cv2.putText(wait_frame,
-                            f"Next: {time.strftime('%H:%M:%S', time.localtime(time.time() + interval_seconds))}",
-                            (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1)
-                cv2.putText(wait_frame, "Press Q to quit",
-                            (30, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLOR_GRAY, 1)
-                cv2.imshow("Water Bottle Detector", wait_frame)
-
-            # Interruptible sleep — check for quit key every second
+            # Interruptible sleep — show the waiting screen and check for quit key every second
             sleep_start = time.time()
             while time.time() - sleep_start < interval_seconds:
                 if not args.no_display:
@@ -487,11 +509,7 @@ def main():
                     secs = int(remaining % 60)
 
                     # Update countdown on waiting screen
-                    wait_frame = draw_waiting_screen()
-                    cv2.putText(wait_frame, f"Next alarm in: {mins:02d}:{secs:02d}",
-                                (30, 140), cv2.FONT_HERSHEY_SIMPLEX, 0.6, COLOR_WHITE, 1)
-                    cv2.putText(wait_frame, "Press Q to quit",
-                                (30, 175), cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLOR_GRAY, 1)
+                    wait_frame = draw_waiting_screen(f"next sip in {mins:02d}:{secs:02d} <3")
                     cv2.imshow("Water Bottle Detector", wait_frame)
 
                     key = cv2.waitKey(1000) & 0xFF
